@@ -205,12 +205,25 @@ handle_call({reply, Pid, _Multiple}, _From, State = #session{
     {reply, {ok, {open, nil}},
      State1#session{ready_state = open}};
 
-handle_call({reply, Pid, _Multiple}, _From, State = #session{
+handle_call({reply, Pid, Multiple}, _From, State = #session{
                                               ready_state = closed,
-                                              close_msg   = CloseMsg}) ->
-    State1 = unmark_waiting(Pid, State),
-    {reply, {close, {close, CloseMsg}}, State1};
-
+                                              close_msg   = CloseMsg,
+                                              outbound_queue = Q}) ->
+    case not(queue:is_queue(Q)) orelse queue:is_empty(Q) of
+      true ->
+        State1 = unmark_waiting(Pid, State),
+        {reply, {close, {close, CloseMsg}}, State1};
+      _ ->
+        {Messages, Q1} = case Multiple of
+                             true  ->
+                                {queue:to_list(Q), queue:new()};
+                             false ->
+                                {{value, Msg}, Q2} = queue:out(Q),
+                                {[Msg], Q2}
+                         end,
+        State1 = unmark_waiting(Pid, State),
+        {reply, {ok, {data, Messages}}, State1#session{outbound_queue = Q1}}
+    end;
 
 handle_call({reply, Pid, _Multiple}, _From, State = #session{
                                              response_pid = RPid})
